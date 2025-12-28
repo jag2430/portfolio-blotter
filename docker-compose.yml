@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  portfolio-blotter:
+    build: .
+    container_name: portfolio-blotter
+    ports:
+      - "8060:8060"
+    environment:
+      - FIX_CLIENT_URL=http://host.docker.internal:8081
+      - REDIS_HOST=host.docker.internal
+      - REDIS_PORT=6379
+      - DASH_DEBUG=false
+      - DASH_HOST=0.0.0.0
+      - DASH_PORT=8060
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # Include this if you want Redis in the same compose
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: blotter-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+
+# volumes:
+#   redis-data:
