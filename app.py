@@ -27,7 +27,8 @@ REDIS_PORT = 6379
 REDIS_CHANNELS = {
     "positions": "positions:updates",
     "executions": "executions:updates",
-    "orders": "orders:updates"
+    "orders": "orders:updates",
+    "marketdata": "marketdata:updates"  # Added market data channel
 }
 
 # Global state for real-time data
@@ -37,6 +38,7 @@ class PortfolioState:
         self.executions = deque(maxlen=100)  # Keep last 100 executions
         self.orders = {}
         self.portfolio_summary = {}
+        self.market_data = {}  # Store latest market data by symbol
         self.last_update = None
         self.connected = False
         self.lock = threading.Lock()
@@ -47,6 +49,52 @@ class PortfolioState:
             if symbol:
                 self.positions[symbol] = position_data
                 self.last_update = datetime.now()
+    
+    def update_market_data(self, market_data: dict):
+        """Update market data and recalculate position P&L"""
+        with self.lock:
+            symbol = market_data.get('symbol')
+            price = market_data.get('price')
+            
+            if not symbol or price is None:
+                return
+            
+            # Store latest market data
+            self.market_data[symbol] = market_data
+            
+            # Update position if exists
+            if symbol in self.positions:
+                position = self.positions[symbol]
+                quantity = position.get('quantity', 0)
+                avg_cost = position.get('avgCost', 0)
+                realized_pnl = position.get('realizedPnl', 0)
+                
+                # Update current price
+                position['currentPrice'] = price
+                
+                # Recalculate market value and unrealized P&L
+                if quantity != 0:
+                    abs_qty = abs(quantity)
+                    market_value = price * abs_qty
+                    total_cost = avg_cost * abs_qty
+                    
+                    if quantity > 0:
+                        # Long position
+                        unrealized_pnl = market_value - total_cost
+                    else:
+                        # Short position
+                        unrealized_pnl = total_cost - market_value
+                    
+                    position['marketValue'] = market_value
+                    position['unrealizedPnl'] = unrealized_pnl
+                    position['totalCost'] = total_cost
+                
+                position['lastUpdated'] = datetime.now().isoformat()
+                self.positions[symbol] = position
+                self.last_update = datetime.now()
+                
+                print(f"Position updated from market data: {symbol} @ ${price:.2f}, "
+                      f"Unrealized P&L: ${position.get('unrealizedPnl', 0):.2f}")
     
     def add_execution(self, exec_data: dict):
         with self.lock:
@@ -78,6 +126,12 @@ class PortfolioState:
             if not self.orders:
                 return pd.DataFrame()
             return pd.DataFrame(list(self.orders.values()))
+    
+    def get_market_data_df(self) -> pd.DataFrame:
+        with self.lock:
+            if not self.market_data:
+                return pd.DataFrame()
+            return pd.DataFrame(list(self.market_data.values()))
 
 # Global state instance
 state = PortfolioState()
@@ -100,13 +154,17 @@ class RedisSubscriber(threading.Thread):
             )
             self.redis_client.ping()
             self.pubsub = self.redis_client.pubsub()
+            
+            # Subscribe to all channels including marketdata
             self.pubsub.subscribe(
                 REDIS_CHANNELS["positions"],
                 REDIS_CHANNELS["executions"],
-                REDIS_CHANNELS["orders"]
+                REDIS_CHANNELS["orders"],
+                REDIS_CHANNELS["marketdata"]  # Subscribe to market data
             )
             self.state.connected = True
             print(f"Connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+            print(f"Subscribed to channels: {list(REDIS_CHANNELS.values())}")
             return True
         except Exception as e:
             print(f"Failed to connect to Redis: {e}")
@@ -161,6 +219,14 @@ class RedisSubscriber(threading.Thread):
                 if isinstance(msg_data, dict) and msg_data:
                     self.state.update_order(msg_data)
                     print(f"Order update: {msg_type} {msg_data.get('clOrdId', '')}")
+            
+            elif channel == REDIS_CHANNELS["marketdata"]:
+                # Handle market data updates
+                if msg_type == "MARKET_DATA":
+                    self.state.update_market_data(msg_data)
+                    symbol = msg_data.get('symbol', 'unknown')
+                    price = msg_data.get('price', 0)
+                    print(f"Market data: {symbol} @ ${price}")
                 
         except json.JSONDecodeError as e:
             print(f"Failed to parse message: {e}, data: {data[:100] if data else 'empty'}")
@@ -201,6 +267,17 @@ def fetch_initial_data():
         if resp.ok:
             for order in resp.json():
                 state.update_order(order)
+        
+        # Fetch market data for existing positions
+        try:
+            resp = requests.get(f"{FIX_CLIENT_URL}/api/portfolio/market-data", timeout=5)
+            if resp.ok:
+                md = resp.json()
+                quotes = md.get('quotes', {})
+                for symbol, quote in quotes.items():
+                    state.update_market_data(quote)
+        except Exception as e:
+            print(f"Could not fetch market data: {e}")
                 
         print("Initial data loaded from FIX Client")
     except Exception as e:
@@ -307,7 +384,12 @@ app.layout = dbc.Container([
         # P&L Chart Tab
         dbc.Tab([
             html.Div(id="pnl-chart-container", style={"marginTop": "20px"})
-        ], label="P&L Analysis", tab_id="tab-pnl")
+        ], label="P&L Analysis", tab_id="tab-pnl"),
+        
+        # Market Data Tab (NEW)
+        dbc.Tab([
+            html.Div(id="marketdata-table-container", style={"marginTop": "20px"})
+        ], label="Market Data", tab_id="tab-marketdata")
     ], id="tabs", active_tab="tab-positions"),
     
     # Auto-refresh interval
@@ -640,9 +722,65 @@ def update_pnl_chart(n):
     return dcc.Graph(figure=fig, style={"height": "500px"})
 
 
+@callback(
+    Output("marketdata-table-container", "children"),
+    Input("interval-component", "n_intervals")
+)
+def update_marketdata_table(n):
+    """New callback for market data tab"""
+    df = state.get_market_data_df()
+    
+    if df.empty:
+        return html.Div("No market data received. Publish data with:\n"
+                       "redis-cli PUBLISH marketdata:updates '{\"type\":\"MARKET_DATA\",\"data\":{\"symbol\":\"NVDA\",\"price\":140.50}}'",
+                       style={"color": "#888", "textAlign": "center", "padding": "50px", "whiteSpace": "pre-wrap"})
+    
+    columns_to_show = ['symbol', 'price', 'bidPrice', 'askPrice', 'volume', 'source', 'updateType', 'timestamp']
+    columns_to_show = [c for c in columns_to_show if c in df.columns]
+    
+    display_df = df[columns_to_show].copy()
+    
+    # Format price columns
+    for col in ['price', 'bidPrice', 'askPrice']:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}" if pd.notnull(x) else "-")
+    
+    # Format volume
+    if 'volume' in display_df.columns:
+        display_df['volume'] = display_df['volume'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "-")
+    
+    return dash_table.DataTable(
+        data=display_df.to_dict('records'),
+        columns=[{"name": col.replace('Price', ' Price').replace('bid', 'Bid').replace('ask', 'Ask').title(), 
+                  "id": col} for col in columns_to_show],
+        style_table={'overflowX': 'auto'},
+        style_cell={
+            'backgroundColor': '#2d2d2d',
+            'color': 'white',
+            'textAlign': 'right',
+            'padding': '12px',
+            'fontFamily': 'monospace'
+        },
+        style_header={
+            'backgroundColor': '#1a1a1a',
+            'color': '#00d4aa',
+            'fontWeight': 'bold',
+            'textAlign': 'center'
+        },
+        style_data_conditional=[
+            {
+                'if': {'column_id': 'symbol'},
+                'textAlign': 'left',
+                'fontWeight': 'bold'
+            }
+        ]
+    )
+
+
 if __name__ == '__main__':
     print("Starting Portfolio Blotter Dashboard...")
     print(f"FIX Client URL: {FIX_CLIENT_URL}")
     print(f"Redis: {REDIS_HOST}:{REDIS_PORT}")
+    print(f"Subscribed channels: {list(REDIS_CHANNELS.values())}")
     print("Dashboard will be available at http://localhost:8060")
     app.run(debug=True, host='0.0.0.0', port=8060)
