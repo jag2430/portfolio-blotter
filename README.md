@@ -2,27 +2,56 @@
 
 A real-time portfolio monitoring dashboard built with Python Dash that subscribes to Redis pub/sub channels from the FIX Client application for live position tracking, P&L analysis, and execution monitoring.
 
+> **This is part of a 4-repository FIX Trading System.** See [fix-trading-ui](https://github.com/jag2430/fix-trading-ui) for the main entry point and system overview.
+
+<!-- 
+SCREENSHOT PLACEHOLDER: Main portfolio dashboard
+- Recommended size: 1200x700px
+- Show: Positions tab with table and pie chart, summary cards at top
+- Tip: Have 3-5 positions with mixed P&L (some green, some red)
+-->
+![Portfolio Dashboard](docs/images/portfolio-dashboard.png)
+*Real-time portfolio monitoring with positions, P&L, and execution tracking*
+
+---
+
 ## Overview
 
 The Portfolio Blotter provides a comprehensive view of trading activity and portfolio performance. It receives real-time updates via Redis pub/sub, eliminating the need for polling and ensuring instant visibility into position changes, executions, and market data updates.
+
+---
 
 ## Features
 
 ### Real-Time Data via Redis Pub/Sub
 - **No Polling Required**: Background thread subscribes to Redis channels
 - **Instant Updates**: Position, execution, and order changes appear immediately
-- **Thread-Safe State**: `PortfolioState` class manages concurrent access
+- **Thread-Safe State**: `PortfolioState` class manages concurrent access with `threading.Lock()`
+- **Update Logging**: Debug tab tracks all state changes with timestamps
+
+### Initial Data Loading
+- **REST API Fetch**: On startup, fetches existing positions, orders, and executions from FIX Client
+- **Seamless Transition**: Historical data loads first, then real-time updates take over
 
 ### Multi-Tab Dashboard
 
 #### 1. Positions Tab
 - Real-time position table with:
-  - Symbol, Quantity, Average Cost
-  - Current Price, Market Value
-  - Unrealized P&L ($ and %)
-  - Realized P&L
+    - Symbol, Quantity, Average Cost
+    - Current Price, Market Value
+    - Unrealized P&L ($ and %)
+    - Realized P&L
 - **Pie Chart**: Position distribution by market value
 - **Color-coded P&L**: Green for profit, red for loss
+
+<!-- 
+SCREENSHOT PLACEHOLDER: Positions tab
+- Recommended size: 1000x500px
+- Show: Positions table with P&L columns, pie chart on right
+- Tip: Include positions with both positive and negative P&L
+-->
+![Positions Tab](docs/images/positions-tab.png)
+*Positions table with real-time P&L calculations and allocation pie chart*
 
 #### 2. Executions Tab
 - Live execution blotter showing all fills
@@ -33,35 +62,82 @@ The Portfolio Blotter provides a comprehensive view of trading activity and port
 #### 3. Orders Tab
 - All orders with current status
 - Status indicators with colors:
-  - NEW (blue)
-  - PARTIALLY_FILLED (yellow)
-  - FILLED (green)
-  - CANCELLED (gray)
-  - REJECTED (red)
+    - NEW (blue)
+    - PARTIALLY_FILLED (yellow)
+    - FILLED (green)
+    - CANCELLED (gray)
+    - REJECTED (red)
 - Shows order details including leaves quantity
 
 #### 4. P&L Analysis Tab
 - **Bar Chart**: Unrealized P&L by position
-  - Green bars for profitable positions
-  - Red bars for losing positions
+    - Green bars for profitable positions
+    - Red bars for losing positions
 - **Summary Statistics**: Total P&L metrics
+
+<!-- 
+SCREENSHOT PLACEHOLDER: P&L Analysis tab
+- Recommended size: 1000x500px
+- Show: Horizontal bar chart with green (profit) and red (loss) bars
+-->
+![P&L Analysis](docs/images/pnl-analysis.png)
+*Visual P&L breakdown by position with profit/loss coloring*
 
 #### 5. Market Data Tab
 - Live prices for all subscribed symbols
 - Shows: Symbol, Price, Change, Change %, Bid, Ask
 - Source and timestamp of last update
+- **Manual Subscription**: Input field to subscribe to additional symbols
+
+#### 6. Debug Log Tab
+- Tracks all state updates with timestamps
+- Useful for troubleshooting data flow issues
+- Shows message types and payload summaries
 
 ### Summary Cards
 Displayed at the top of every tab:
 - **Total Market Value**: Sum of all position values
 - **Unrealized P&L**: Paper profit/loss across all positions
 - **Realized P&L**: Locked-in profit/loss from closed trades
-- **Connection Status**: Redis subscription status
+- **Connection Status**: Redis subscription status indicator
 
 ### Visual Design
 - **Dark Theme**: Professional trading terminal aesthetic
 - **Color Coding**: Consistent use of green (profit/buy) and red (loss/sell)
 - **Auto-Refresh**: Dashboard updates every second via Dash interval
+
+---
+
+## Screenshots
+
+### Market Data Tab
+<!-- 
+SCREENSHOT PLACEHOLDER: Market data tab
+- Recommended size: 1000x400px
+- Show: Market data table with prices, subscription input field
+-->
+![Market Data](docs/images/market-data-tab.png)
+*Live market data with manual symbol subscription*
+
+### Executions Tab
+<!-- 
+SCREENSHOT PLACEHOLDER: Executions tab
+- Recommended size: 1000x400px
+- Show: Executions table with BUY (green) and SELL (red) rows
+-->
+![Executions](docs/images/executions-tab.png)
+*Execution blotter with color-coded buy/sell sides*
+
+### Orders Tab
+<!-- 
+SCREENSHOT PLACEHOLDER: Orders tab
+- Recommended size: 1000x400px
+- Show: Orders with various statuses (NEW, FILLED, CANCELLED)
+-->
+![Orders](docs/images/orders-tab.png)
+*Order tracking with status indicators*
+
+---
 
 ## Architecture
 
@@ -81,6 +157,7 @@ Displayed at the top of every tab:
 │  │  ┌─────────────────────────────────────────────────────────────────┐  │ │
 │  │  │                         Tab Navigation                          │  │ │
 │  │  │  [Positions] [Executions] [Orders] [P&L Analysis] [Market Data] │  │ │
+│  │  │  [Debug Log]                                                    │  │ │
 │  │  └─────────────────────────────────────────────────────────────────┘  │ │
 │  │                                                                       │ │
 │  │  ┌─────────────────────────────────────────────────────────────────┐  │ │
@@ -90,7 +167,8 @@ Displayed at the top of every tab:
 │  │  │   Executions Tab:   [Executions DataTable]                      │  │ │
 │  │  │   Orders Tab:       [Orders DataTable]                          │  │ │
 │  │  │   P&L Analysis:     [Bar Chart] [Statistics]                    │  │ │
-│  │  │   Market Data:      [Prices DataTable]                          │  │ │
+│  │  │   Market Data:      [Prices DataTable] [Subscribe Input]        │  │ │
+│  │  │   Debug Log:        [Update Log Table]                          │  │ │
 │  │  │                                                                 │  │ │
 │  │  └─────────────────────────────────────────────────────────────────┘  │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
@@ -99,11 +177,11 @@ Displayed at the top of every tab:
 │  │                        Application Layer                              │ │
 │  │                                                                       │ │
 │  │  ┌─────────────────────┐         ┌─────────────────────────────────┐  │ │
-│  │  │   PortfolioState    │◀───────         Dash Callbacks               
+│  │  │   PortfolioState    │<───────>│       Dash Callbacks            │  │ │
 │  │  │   (Thread-safe)     │         │     (1-second interval)         │  │ │
 │  │  │                     │         └─────────────────────────────────┘  │ │
 │  │  │  • positions: {}    │                                              │ │
-│  │  │  • executions: []   │                                              │ │
+│  │  │  • executions: deque│                                              │ │
 │  │  │  • orders: {}       │                                              │ │
 │  │  │  • market_data: {}  │                                              │ │
 │  │  │  • lock: Lock()     │                                              │ │
@@ -117,8 +195,9 @@ Displayed at the top of every tab:
 │  │  │                      │                                             │ │
 │  │  │  Subscribes to:      │                                             │ │
 │  │  │  • positions:updates │                                             │ │
-│  │  │  • executions:update |                                             │ │
+│  │  │  • executions:updates│                                             │ │
 │  │  │  • orders:updates    │                                             │ │
+│  │  │  • marketdata:updates│                                             │ │
 │  │  └──────────┬───────────┘                                             │ │
 │  └─────────────┼─────────────────────────────────────────────────────────┘ │
 │                │                                                           │
@@ -143,7 +222,7 @@ Displayed at the top of every tab:
 
 ### Initial Load
 1. Dashboard starts and connects to Redis
-2. Fetches current portfolio state from FIX Client REST API
+2. Fetches current portfolio state from FIX Client REST API (`fetch_initial_data()`)
 3. Background thread subscribes to Redis pub/sub channels
 
 ### Real-Time Updates
@@ -151,9 +230,15 @@ Displayed at the top of every tab:
 2. FIX Client publishes to Redis channel (e.g., `executions:updates`)
 3. RedisSubscriber thread receives message
 4. `handle_message()` routes to appropriate state update method
-5. PortfolioState updates internal data structures (thread-safe)
+5. PortfolioState updates internal data structures (thread-safe with Lock)
 6. Dash interval callback fires every second
 7. Callbacks read from PortfolioState and update UI components
+
+### Market Data Updates
+1. FIX Client receives price update from Finnhub
+2. Publishes to `marketdata:updates` channel
+3. Dashboard receives update and recalculates position P&L (`update_market_data()`)
+4. Unrealized P&L refreshes automatically
 
 ## Redis Channels
 
@@ -162,7 +247,7 @@ Displayed at the top of every tab:
 | `positions:updates` | POSITION_UPDATE | Position with P&L | Positions table, charts |
 | `executions:updates` | EXECUTION | Execution details | Executions table |
 | `orders:updates` | ORDER_* | Order status | Orders table |
-| `marketdata:updates` | MARKET_DATA | Price update | Market Data table, P&L |
+| `marketdata:updates` | MARKET_DATA | Price update | Market Data table, P&L recalc |
 
 ### Message Format Examples
 
@@ -254,6 +339,7 @@ Key Python packages:
 - `plotly` - Interactive charts
 - `pandas` - Data manipulation
 - `redis` - Redis client
+- `python-dotenv` - Environment configuration
 
 ## Running the Dashboard
 
@@ -337,8 +423,10 @@ portfolio-blotter/
 ├── requirements.txt       # Python dependencies
 ├── .env.example          # Example environment config
 ├── .env                  # Local environment config (git-ignored)
-└── assets/
-    └── styles.css        # Custom CSS styles
+├── README.md
+└── docs/
+    └── images/           # Screenshot images
+
 ```
 
 ### Key Classes
@@ -349,11 +437,11 @@ class PortfolioState:
     """Thread-safe state management for portfolio data"""
     
     def __init__(self):
-        self.positions = {}      # symbol -> Position
-        self.executions = []     # List of executions
-        self.orders = {}         # clOrdId -> Order
-        self.market_data = {}    # symbol -> MarketData
-        self.lock = threading.Lock()
+        self.positions = {}           # symbol -> Position
+        self.executions = deque(maxlen=100)  # Bounded execution history
+        self.orders = {}              # clOrdId -> Order
+        self.market_data = {}         # symbol -> MarketData
+        self.lock = threading.Lock()  # Thread safety
     
     def update_position(self, position_data):
         with self.lock:
@@ -362,6 +450,16 @@ class PortfolioState:
     def add_execution(self, execution_data):
         with self.lock:
             self.executions.append(execution_data)
+    
+    def update_market_data(self, data):
+        """Update price and recalculate position P&L"""
+        with self.lock:
+            symbol = data['symbol']
+            self.market_data[symbol] = data
+            if symbol in self.positions:
+                pos = self.positions[symbol]
+                pos['currentPrice'] = data['price']
+                pos['unrealizedPnl'] = (data['price'] - pos['avgCost']) * pos['quantity']
     
     def get_positions_df(self):
         with self.lock:
@@ -387,6 +485,7 @@ class RedisSubscriber(threading.Thread):
         for message in self.pubsub.listen():
             if message['type'] == 'message':
                 self.handle_message(message)
+                self.state.log_update(message)  # Debug logging
 ```
 
 ## Troubleshooting
@@ -446,7 +545,7 @@ curl http://localhost:8081/api/executions
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Trading UI      ───▶    FIX Client      ───▶    Exchange      
+│  Trading UI     │────>│   FIX Client    │────>│    Exchange     │
 │  (Dash:8050)    │REST │ (Spring:8081)   │ FIX │  (Spring:9876)  │
 └─────────────────┘     └────────┬────────┘     └─────────────────┘
                                  │
@@ -461,6 +560,15 @@ curl http://localhost:8081/api/executions
                                  ▼
                         ┌─────────────────┐
                         │Portfolio Blotter│
+                        │  (This Repo)    │
                         │  (Dash:8060)    │
                         └─────────────────┘
 ```
+
+## Related Repositories
+
+| Repository                                                                  | Description |
+|-----------------------------------------------------------------------------|-------------|
+| [fix-trading-ui](https://github.com/jag2430/fix-trading-ui)                 | Order entry UI (main entry point) |
+| [fix-client](https://github.com/jag2430/fix-client)                         | FIX middleware & REST API |
+| [fix-exchange-simulator](https://github.com/jag2430/fix-exchange-simulator) | Matching engine |
